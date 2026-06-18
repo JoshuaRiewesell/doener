@@ -54,7 +54,7 @@ const eraser = document.getElementById('eraser');
 
 // --- Google Sheets / Apps Script webapp configuration ---
 // Fill these blanks after you deploy the Apps Script web app (see apps_script.gs)
-const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwvzXQmxnHpv47gtI8eX9ObSubzc6YY4HiYRt_h8ReecmCJg-2EodWELl6189R96wTdsw/exec'; // e.g. https://script.google.com/macros/s/XXX/exec
+const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbx-U2HQ82iKpcou6g_uBm-TTQZcBd83KNjEwVAmkyi_I0t9fSgiF1JotR_n5VB_2EaoiQ/exec'; // e.g. https://script.google.com/macros/s/XXX/exec
 const SHEET_NAME = 'Colors'; // sheet/tab name used by the script (default "Colors")
 
 COLORS.forEach(c => {
@@ -168,15 +168,15 @@ function makeClickable(paths) {
 
     el.addEventListener('click', (e) => {
       e.stopPropagation();
-      const name = getName(el) || el.id || 'Bereich';
+      const polyId = el.dataset.polyId || '0';
       if (selectedColor) {
         el.setAttribute('fill', selectedColor.hex);
         el.dataset.colored = '1';
-        areaColors[name] = selectedColor;
+        areaColors[polyId] = selectedColor;
       } else {
         el.setAttribute('fill', el.dataset.origFill || '');
         delete el.dataset.colored;
-        delete areaColors[name];
+        delete areaColors[polyId];
       }
       updateLegend();
     });
@@ -204,8 +204,12 @@ async function loadMap() {
       const stroke = el.getAttribute('stroke');
       return fill && fill !== 'none' && fill !== '#ffffff' && fill !== 'white';
     });
+    const clickablePaths = interesting.length > 5 ? interesting : Array.from(clickable);
+    clickablePaths.forEach((el, index) => {
+      el.dataset.polyId = String(index + 1);
+    });
 
-    makeClickable(interesting.length > 5 ? interesting : Array.from(clickable));
+    makeClickable(clickablePaths);
   } catch(err) {
     document.getElementById('map-container').innerHTML =
       '<div id="error"><i class="ti ti-alert-triangle" style="font-size:32px; display:block; margin-bottom:8px;" aria-hidden="true"></i>Karte konnte nicht geladen werden.<br><small>' + err.message + '</small></div>';
@@ -230,16 +234,12 @@ function loadFromSheet() {
         delete el.dataset.colored;
       });
       rows.forEach(r => {
-        if (!r.name) return;
-        const sel = Array.from(document.querySelectorAll('#map-container svg [id], #map-container svg path, #map-container svg polygon'))
-          .find(el => {
-            const n = (el.querySelector && el.querySelector('title') && el.querySelector('title').textContent) || el.id || '';
-            return n && n.trim() === r.name;
-          });
+        if (!r.id) return;
+        const sel = document.querySelector('#map-container svg [data-poly-id="' + r.id + '"]');
         if (sel && r.hex) {
           sel.setAttribute('fill', r.hex);
           sel.dataset.colored = '1';
-          areaColors[r.name] = { hex: r.hex, label: r.label || '' };
+          areaColors[r.id] = { hex: r.hex, label: r.label || '' };
         }
       });
       updateLegend();
@@ -271,7 +271,7 @@ function saveToSheet() {
     alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
     return;
   }
-  const rows = Object.entries(areaColors).map(([name, v]) => ({ name, hex: v.hex, label: v.label }));
+  const rows = Object.entries(areaColors).map(([id, v]) => ({ id, hex: v.hex, label: v.label }));
   const payload = encodeURIComponent(JSON.stringify(rows));
   const cb = 'doener_save_cb_' + Date.now();
   window[cb] = function (resp) {

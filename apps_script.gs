@@ -24,7 +24,7 @@ function doGet(e) {
       const rows = [];
       for (let i = 1; i < values.length; i++) {
         const r = values[i];
-        rows.push({ name: r[0], hex: r[1], label: r[2] });
+        rows.push({ id: r[0], hex: r[1], label: r[2] });
       }
       const payload = { rows };
       if (callback) {
@@ -44,9 +44,9 @@ function doGet(e) {
       }
       const sh = getSheet(sheetName);
       sh.clearContents();
-      sh.appendRow(['name', 'hex', 'label']);
+      sh.appendRow(['id', 'hex', 'label']);
       rows.forEach(r => {
-        sh.appendRow([r.name || '', r.hex || '', r.label || '']);
+        sh.appendRow([r.id || '', r.hex || '', r.label || '']);
       });
       const payload = { status: 'ok', rowsWritten: rows.length };
       if (callback) {
@@ -83,9 +83,9 @@ function doPost(e) {
     const sh = getSheet(sheetName);
     // clear and write header + rows
     sh.clearContents();
-    sh.appendRow(['name', 'hex', 'label']);
+    sh.appendRow(['id', 'hex', 'label']);
     rows.forEach(r => {
-      sh.appendRow([r.name || '', r.hex || '', r.label || '']);
+      sh.appendRow([r.id || '', r.hex || '', r.label || '']);
     });
     return ContentService
       .createTextOutput(JSON.stringify({ status: 'ok', rowsWritten: rows.length }))
