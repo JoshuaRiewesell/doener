@@ -52,6 +52,11 @@ const legend = document.getElementById('legend');
 const tooltip = document.getElementById('tooltip');
 const eraser = document.getElementById('eraser');
 
+// --- Google Sheets / Apps Script webapp configuration ---
+// Fill these blanks after you deploy the Apps Script web app (see apps_script.gs)
+const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyUtRS2tncWs4DYqcrFc0AESojxdxa9C1EpQsnTZVD98kHPoMy4kLBGbqKt7hXD9BYc0Q/exec'; // e.g. https://script.google.com/macros/s/XXX/exec
+const SHEET_NAME = 'Colors'; // sheet/tab name used by the script (default "Colors")
+
 COLORS.forEach(c => {
   const sw = document.createElement('div');
   sw.className = 'color-swatch';
@@ -73,6 +78,22 @@ resetBtn.id = 'reset-btn';
 resetBtn.textContent = 'Zurücksetzen';
 resetBtn.addEventListener('click', resetAll);
 toolbar.appendChild(resetBtn);
+
+const loadBtn = document.createElement('button');
+loadBtn.id = 'load-btn';
+loadBtn.textContent = 'Laden';
+loadBtn.style.fontSize = '12px';
+loadBtn.style.cursor = 'pointer';
+loadBtn.addEventListener('click', loadFromSheet);
+toolbar.appendChild(loadBtn);
+
+const saveBtn = document.createElement('button');
+saveBtn.id = 'save-btn';
+saveBtn.textContent = 'Speichern';
+saveBtn.style.fontSize = '12px';
+saveBtn.style.cursor = 'pointer';
+saveBtn.addEventListener('click', saveToSheet);
+toolbar.appendChild(saveBtn);
 
 eraser.addEventListener('click', () => {
   selectedColor = null;
@@ -192,4 +213,67 @@ async function loadMap() {
 }
 
 loadMap();
+
+/* Google Sheets integration: save/load simple name→color mapping */
+async function loadFromSheet() {
+  if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
+    alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
+    return;
+  }
+  try {
+    const res = await fetch(SHEET_WEBAPP_URL + '?action=get');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    // expected shape: { rows: [ { name, hex, label } ] }
+    const rows = Array.isArray(json.rows) ? json.rows : [];
+    // clear current
+    Object.keys(areaColors).forEach(k => delete areaColors[k]);
+    document.querySelectorAll('#map-container [data-colored="1"]').forEach(el => {
+      el.setAttribute('fill', el.dataset.origFill || '');
+      delete el.dataset.colored;
+    });
+    // apply loaded
+    rows.forEach(r => {
+      if (!r.name) return;
+      const sel = Array.from(document.querySelectorAll('#map-container svg [id], #map-container svg path, #map-container svg polygon'))
+        .find(el => {
+          const n = (el.querySelector && el.querySelector('title') && el.querySelector('title').textContent) || el.id || '';
+          return n && n.trim() === r.name;
+        });
+      if (sel && r.hex) {
+        sel.setAttribute('fill', r.hex);
+        sel.dataset.colored = '1';
+        areaColors[r.name] = { hex: r.hex, label: r.label || '' };
+      }
+    });
+    updateLegend();
+    alert('Daten geladen.');
+  } catch (err) {
+    alert('Fehler beim Laden: ' + err.message);
+  }
+}
+
+async function saveToSheet() {
+  if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
+    alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
+    return;
+  }
+  try {
+    const rows = Object.entries(areaColors).map(([name, v]) => ({ name, hex: v.hex, label: v.label }));
+    const res = await fetch(SHEET_WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set', sheet: SHEET_NAME, rows })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (json && json.status === 'ok') {
+      alert('Daten gespeichert.');
+    } else {
+      throw new Error(json && json.message ? json.message : 'Unbekannte Antwort');
+    }
+  } catch (err) {
+    alert('Fehler beim Speichern: ' + err.message);
+  }
+}
 </script>
