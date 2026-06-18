@@ -29,6 +29,7 @@
   <div id="eraser" class="active" title="Farbe entfernen" aria-label="Radierer">🧹</div>
   <div style="width:1px; height:20px; background: var(--color-border-secondary); margin: 0 2px;"></div>
 </div>
+<div id="status" aria-live="polite"></div>
 
 <div id="map-container">
   <div id="loading"><i class="ti ti-map-2" style="font-size:32px; display:block; margin-bottom:8px;" aria-hidden="true"></i>Karte wird geladen…</div>
@@ -47,9 +48,11 @@ const COLORS = [
 
 let selectedColor = null;
 const areaColors = {};
+const undoStack = [];
 const toolbar = document.getElementById('toolbar');
 const legend = document.getElementById('legend');
 const tooltip = document.getElementById('tooltip');
+const status = document.getElementById('status');
 const eraser = document.getElementById('eraser');
 
 // --- Google Sheets / Apps Script webapp configuration ---
@@ -73,19 +76,13 @@ COLORS.forEach(c => {
   toolbar.appendChild(sw);
 });
 
-const resetBtn = document.createElement('button');
-resetBtn.id = 'reset-btn';
-resetBtn.textContent = 'Zurücksetzen';
-resetBtn.addEventListener('click', resetAll);
-toolbar.appendChild(resetBtn);
-
-const loadBtn = document.createElement('button');
-loadBtn.id = 'load-btn';
-loadBtn.textContent = 'Laden';
-loadBtn.style.fontSize = '12px';
-loadBtn.style.cursor = 'pointer';
-loadBtn.addEventListener('click', loadFromSheet);
-toolbar.appendChild(loadBtn);
+const undoBtn = document.createElement('button');
+undoBtn.id = 'undo-btn';
+undoBtn.textContent = 'Rückgängig';
+undoBtn.style.fontSize = '12px';
+undoBtn.style.cursor = 'pointer';
+undoBtn.addEventListener('click', undoLastAction);
+toolbar.appendChild(undoBtn);
 
 const saveBtn = document.createElement('button');
 saveBtn.id = 'save-btn';
@@ -169,10 +166,17 @@ function makeClickable(paths) {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       const polyId = el.dataset.polyId || '0';
+      const previousState = {
+        id: polyId,
+        hex: el.getAttribute('fill') || '',
+        colored: el.dataset.colored === '1',
+        label: areaColors[polyId] ? areaColors[polyId].label : ''
+      };
+      undoStack.push(previousState);
       if (selectedColor) {
         el.setAttribute('fill', selectedColor.hex);
         el.dataset.colored = '1';
-        areaColors[polyId] = selectedColor;
+        areaColors[polyId] = { hex: selectedColor.hex, label: selectedColor.label };
       } else {
         el.setAttribute('fill', el.dataset.origFill || '');
         delete el.dataset.colored;
@@ -216,14 +220,49 @@ async function loadMap() {
   }
 }
 
-loadMap();
+loadMap().then(loadFromSheet);
+
+function setStatus(message) {
+  if (!status) return;
+  status.textContent = message;
+  if (message) {
+    status.style.display = 'block';
+  } else {
+    status.style.display = 'none';
+  }
+}
+
+function undoLastAction() {
+  if (undoStack.length === 0) {
+    setStatus('Keine Aktion zum Rückgängig machen.');
+    return;
+  }
+  const previousState = undoStack.pop();
+  const el = document.querySelector('#map-container svg [data-poly-id="' + previousState.id + '"]');
+  if (!el) {
+    setStatus('Polygon nicht gefunden.');
+    return;
+  }
+  if (previousState.colored) {
+    el.setAttribute('fill', previousState.hex);
+    el.dataset.colored = '1';
+    areaColors[previousState.id] = { hex: previousState.hex, label: previousState.label };
+  } else {
+    el.setAttribute('fill', el.dataset.origFill || '');
+    delete el.dataset.colored;
+    delete areaColors[previousState.id];
+  }
+  updateLegend();
+  setStatus('Letzte Aktion rückgängig gemacht.');
+}
 
 /* Google Sheets integration: save/load simple name→color mapping */
 function loadFromSheet() {
   if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
-    alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
+    setStatus('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
     return;
   }
+  setStatus('Lade gespeicherte Farben…');
   const cb = 'doener_load_cb_' + Date.now();
   window[cb] = function (json) {
     try {
@@ -243,9 +282,9 @@ function loadFromSheet() {
         }
       });
       updateLegend();
-      alert('Daten geladen.');
+      setStatus('Daten geladen.');
     } catch (err) {
-      alert('Fehler beim Verarbeiten: ' + err.message);
+      setStatus('Fehler beim Verarbeiten: ' + err.message);
     }
     // cleanup
     const s = document.getElementById(cb + '_script');
@@ -259,7 +298,7 @@ function loadFromSheet() {
   // timeout
   setTimeout(() => {
     if (window[cb]) {
-      alert('Timeout beim Laden der Daten.');
+      setStatus('Timeout beim Laden der Daten.');
       const s = document.getElementById(cb + '_script'); if (s) s.remove();
       try { delete window[cb]; } catch (_) { window[cb] = undefined; }
     }
@@ -268,18 +307,19 @@ function loadFromSheet() {
 
 function saveToSheet() {
   if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
-    alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
+    setStatus('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
     return;
   }
+  setStatus('Speichere Daten…');
   const rows = Object.entries(areaColors).map(([id, v]) => ({ id, hex: v.hex, label: v.label }));
   const payload = encodeURIComponent(JSON.stringify(rows));
   const cb = 'doener_save_cb_' + Date.now();
   window[cb] = function (resp) {
     try {
-      if (resp && resp.status === 'ok') alert('Daten gespeichert.');
-      else alert('Fehler beim Speichern: ' + (resp && resp.message ? resp.message : JSON.stringify(resp)));
+      if (resp && resp.status === 'ok') setStatus('Daten gespeichert.');
+      else setStatus('Fehler beim Speichern: ' + (resp && resp.message ? resp.message : JSON.stringify(resp)));
     } catch (err) {
-      alert('Fehler beim Speichern: ' + err.message);
+      setStatus('Fehler beim Speichern: ' + err.message);
     }
     const s = document.getElementById(cb + '_script'); if (s) s.remove();
     try { delete window[cb]; } catch (_) { window[cb] = undefined; }
@@ -290,7 +330,7 @@ function saveToSheet() {
   document.head.appendChild(script);
   setTimeout(() => {
     if (window[cb]) {
-      alert('Timeout beim Speichern.');
+      setStatus('Timeout beim Speichern.');
       const s = document.getElementById(cb + '_script'); if (s) s.remove();
       try { delete window[cb]; } catch (_) { window[cb] = undefined; }
     }
