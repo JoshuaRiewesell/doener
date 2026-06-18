@@ -13,23 +13,59 @@ function getSheet(sheetName) {
 }
 
 function doGet(e) {
+  const params = (e && e.parameter) || {};
+  const action = params.action || 'get';
+  const sheetName = params.sheet || DEFAULT_SHEET_NAME;
+  const callback = params.callback;
   try {
-    const sheetName = (e && e.parameter && e.parameter.sheet) || DEFAULT_SHEET_NAME;
-    const sh = getSheet(sheetName);
-    const values = sh.getDataRange().getValues();
-    // Expect header row [name, hex, label]
-    const rows = [];
-    for (let i = 1; i < values.length; i++) {
-      const r = values[i];
-      rows.push({ name: r[0], hex: r[1], label: r[2] });
+    if (action === 'get') {
+      const sh = getSheet(sheetName);
+      const values = sh.getDataRange().getValues();
+      const rows = [];
+      for (let i = 1; i < values.length; i++) {
+        const r = values[i];
+        rows.push({ name: r[0], hex: r[1], label: r[2] });
+      }
+      const payload = { rows };
+      if (callback) {
+        return ContentService.createTextOutput(callback + '(' + JSON.stringify(payload) + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
     }
-    return ContentService
-      .createTextOutput(JSON.stringify({ rows }))
-      .setMimeType(ContentService.MimeType.JSON);
+
+    if (action === 'set') {
+      let rows = [];
+      if (params.rows) {
+        try {
+          rows = JSON.parse(params.rows);
+        } catch (err) {
+          rows = [];
+        }
+      }
+      const sh = getSheet(sheetName);
+      sh.clearContents();
+      sh.appendRow(['name', 'hex', 'label']);
+      rows.forEach(r => {
+        sh.appendRow([r.name || '', r.hex || '', r.label || '']);
+      });
+      const payload = { status: 'ok', rowsWritten: rows.length };
+      if (callback) {
+        return ContentService.createTextOutput(callback + '(' + JSON.stringify(payload) + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const payload = { status: 'error', message: 'Unknown action' };
+    if (callback) {
+      return ContentService.createTextOutput(callback + '(' + JSON.stringify(payload) + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
+    const payload = { status: 'error', message: err.message };
+    if (callback) {
+      return ContentService.createTextOutput(callback + '(' + JSON.stringify(payload) + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
   }
 }
 

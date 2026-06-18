@@ -40,9 +40,9 @@
 
 <script>
 const COLORS = [
-    { hex: '#0000FF', label: 'Jakob' },
-    { hex: '#00FF00', label: 'Christoph' },
-    { hex: '#FF0000', label: 'Joshua' },
+    { hex: '#8888FF', label: 'Jakob' },
+    { hex: '#88FF88', label: 'Christoph' },
+    { hex: '#FF8888', label: 'Joshua' },
 ];
 
 let selectedColor = null;
@@ -54,7 +54,7 @@ const eraser = document.getElementById('eraser');
 
 // --- Google Sheets / Apps Script webapp configuration ---
 // Fill these blanks after you deploy the Apps Script web app (see apps_script.gs)
-const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyUtRS2tncWs4DYqcrFc0AESojxdxa9C1EpQsnTZVD98kHPoMy4kLBGbqKt7hXD9BYc0Q/exec'; // e.g. https://script.google.com/macros/s/XXX/exec
+const SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwvzXQmxnHpv47gtI8eX9ObSubzc6YY4HiYRt_h8ReecmCJg-2EodWELl6189R96wTdsw/exec'; // e.g. https://script.google.com/macros/s/XXX/exec
 const SHEET_NAME = 'Colors'; // sheet/tab name used by the script (default "Colors")
 
 COLORS.forEach(c => {
@@ -215,65 +215,85 @@ async function loadMap() {
 loadMap();
 
 /* Google Sheets integration: save/load simple name→color mapping */
-async function loadFromSheet() {
+function loadFromSheet() {
   if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
     alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
     return;
   }
-  try {
-    const res = await fetch(SHEET_WEBAPP_URL + '?action=get');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-    // expected shape: { rows: [ { name, hex, label } ] }
-    const rows = Array.isArray(json.rows) ? json.rows : [];
-    // clear current
-    Object.keys(areaColors).forEach(k => delete areaColors[k]);
-    document.querySelectorAll('#map-container [data-colored="1"]').forEach(el => {
-      el.setAttribute('fill', el.dataset.origFill || '');
-      delete el.dataset.colored;
-    });
-    // apply loaded
-    rows.forEach(r => {
-      if (!r.name) return;
-      const sel = Array.from(document.querySelectorAll('#map-container svg [id], #map-container svg path, #map-container svg polygon'))
-        .find(el => {
-          const n = (el.querySelector && el.querySelector('title') && el.querySelector('title').textContent) || el.id || '';
-          return n && n.trim() === r.name;
-        });
-      if (sel && r.hex) {
-        sel.setAttribute('fill', r.hex);
-        sel.dataset.colored = '1';
-        areaColors[r.name] = { hex: r.hex, label: r.label || '' };
-      }
-    });
-    updateLegend();
-    alert('Daten geladen.');
-  } catch (err) {
-    alert('Fehler beim Laden: ' + err.message);
-  }
+  const cb = 'doener_load_cb_' + Date.now();
+  window[cb] = function (json) {
+    try {
+      const rows = Array.isArray(json.rows) ? json.rows : [];
+      Object.keys(areaColors).forEach(k => delete areaColors[k]);
+      document.querySelectorAll('#map-container [data-colored="1"]').forEach(el => {
+        el.setAttribute('fill', el.dataset.origFill || '');
+        delete el.dataset.colored;
+      });
+      rows.forEach(r => {
+        if (!r.name) return;
+        const sel = Array.from(document.querySelectorAll('#map-container svg [id], #map-container svg path, #map-container svg polygon'))
+          .find(el => {
+            const n = (el.querySelector && el.querySelector('title') && el.querySelector('title').textContent) || el.id || '';
+            return n && n.trim() === r.name;
+          });
+        if (sel && r.hex) {
+          sel.setAttribute('fill', r.hex);
+          sel.dataset.colored = '1';
+          areaColors[r.name] = { hex: r.hex, label: r.label || '' };
+        }
+      });
+      updateLegend();
+      alert('Daten geladen.');
+    } catch (err) {
+      alert('Fehler beim Verarbeiten: ' + err.message);
+    }
+    // cleanup
+    const s = document.getElementById(cb + '_script');
+    if (s) s.remove();
+    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+  };
+  const script = document.createElement('script');
+  script.id = cb + '_script';
+  script.src = SHEET_WEBAPP_URL + '?action=get&sheet=' + encodeURIComponent(SHEET_NAME) + '&callback=' + cb;
+  document.head.appendChild(script);
+  // timeout
+  setTimeout(() => {
+    if (window[cb]) {
+      alert('Timeout beim Laden der Daten.');
+      const s = document.getElementById(cb + '_script'); if (s) s.remove();
+      try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+    }
+  }, 15000);
 }
 
-async function saveToSheet() {
+function saveToSheet() {
   if (!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.includes('<<')) {
     alert('Bitte WEB_APP_URL in der Datei eintragen (SHEET_WEBAPP_URL).');
     return;
   }
-  try {
-    const rows = Object.entries(areaColors).map(([name, v]) => ({ name, hex: v.hex, label: v.label }));
-    const res = await fetch(SHEET_WEBAPP_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', sheet: SHEET_NAME, rows })
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-    if (json && json.status === 'ok') {
-      alert('Daten gespeichert.');
-    } else {
-      throw new Error(json && json.message ? json.message : 'Unbekannte Antwort');
+  const rows = Object.entries(areaColors).map(([name, v]) => ({ name, hex: v.hex, label: v.label }));
+  const payload = encodeURIComponent(JSON.stringify(rows));
+  const cb = 'doener_save_cb_' + Date.now();
+  window[cb] = function (resp) {
+    try {
+      if (resp && resp.status === 'ok') alert('Daten gespeichert.');
+      else alert('Fehler beim Speichern: ' + (resp && resp.message ? resp.message : JSON.stringify(resp)));
+    } catch (err) {
+      alert('Fehler beim Speichern: ' + err.message);
     }
-  } catch (err) {
-    alert('Fehler beim Speichern: ' + err.message);
-  }
+    const s = document.getElementById(cb + '_script'); if (s) s.remove();
+    try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+  };
+  const script = document.createElement('script');
+  script.id = cb + '_script';
+  script.src = SHEET_WEBAPP_URL + '?action=set&sheet=' + encodeURIComponent(SHEET_NAME) + '&rows=' + payload + '&callback=' + cb;
+  document.head.appendChild(script);
+  setTimeout(() => {
+    if (window[cb]) {
+      alert('Timeout beim Speichern.');
+      const s = document.getElementById(cb + '_script'); if (s) s.remove();
+      try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+    }
+  }, 15000);
 }
 </script>
