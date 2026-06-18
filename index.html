@@ -12,13 +12,13 @@
     touch-action: none;
     background: var(--color-background-primary);
   }
-  #toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px; width: 100%; }
-  #action-row { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; width: 100%; }
-  #control-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; background: #fff; border-top-left-radius: 24px; border-top-right-radius: 24px; border-top: 1px solid rgba(0,0,0,0.14); padding: 18px 14px 24px; box-sizing: border-box; min-height: 200px; box-shadow: 0 -14px 28px rgba(0,0,0,0.18); }
-  .color-swatch { width: 54px; height: 54px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: transform .15s, border-color .15s; flex-shrink: 0; }
+  #toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; width: 100%; }
+  #action-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; width: 100%; }
+  #control-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; background: #fff; border-top-left-radius: 24px; border-top-right-radius: 24px; border-top: 1px solid rgba(0,0,0,0.14); padding: 12px 12px 16px; box-sizing: border-box; min-height: auto; box-shadow: 0 -14px 28px rgba(0,0,0,0.18); }
+  .color-swatch { width: 42px; height: 42px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: transform .15s, border-color .15s; flex-shrink: 0; }
   .color-swatch:hover { transform: scale(1.02); }
   .color-swatch.active { border-color: var(--color-text-primary); transform: scale(1.02); }
-  #eraser { font-size: 28px; cursor: pointer; padding: 0; border-radius: 50%; border: 4px solid transparent; line-height: 1; display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; }
+  #eraser { font-size: 22px; cursor: pointer; padding: 0; border-radius: 50%; border: 4px solid transparent; line-height: 1; display: flex; align-items: center; justify-content: center; width: 50px; height: 50px; }
   #eraser:hover, #eraser.active { border-color: var(--color-text-primary); background: var(--color-background-secondary); }
   #map-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; background: var(--color-background-secondary); touch-action: none; }
   #map-container svg { width: 100%; height: 100%; display: block; touch-action: none; transform-origin: center center; }
@@ -35,10 +35,10 @@
   #loading { text-align: center; padding: 60px 20px; color: var(--color-text-secondary); font-size: 14px; }
   #error { text-align: center; padding: 40px 20px; color: var(--color-text-danger); font-size: 14px; }
   @media (max-width: 640px) {
-    #toolbar { gap: 12px; }
-    .color-swatch, #eraser { width: 60px; height: 60px; }
-    #toolbar button { min-width: 120px; padding: 16px 16px; font-size: 17px; }
-    #control-panel { min-height: 220px; padding: 18px 14px 26px; }
+    #toolbar { gap: 10px; }
+    .color-swatch, #eraser { width: 50px; height: 50px; }
+    #toolbar button { min-width: 110px; padding: 12px 14px; font-size: 15px; }
+    #control-panel { min-height: auto; padding: 12px 12px 16px; }
   }
 </style>
 
@@ -94,6 +94,7 @@ function initMapTouchZoom(svg) {
   mapContainer.addEventListener('pointerup', onMapPointerUp);
   mapContainer.addEventListener('pointercancel', onMapPointerUp);
   mapContainer.addEventListener('pointerleave', onMapPointerUp);
+  mapContainer.addEventListener('wheel', onMapWheel, { passive: false });
 }
 
 function onMapPointerDown(ev) {
@@ -151,6 +152,14 @@ function onMapPointerUp(ev) {
   if (activePointers.size === 0) {
     lastPanPoint = null;
   }
+}
+
+function onMapWheel(ev) {
+  if (!mapSvg) return;
+  ev.preventDefault();
+  const delta = ev.deltaY > 0 ? 0.9 : 1.1;
+  mapScale = Math.min(3, Math.max(1, mapScale * delta));
+  applyMapTransform();
 }
 
 // --- Google Sheets / Apps Script webapp configuration ---
@@ -298,6 +307,7 @@ async function loadMap() {
     });
 
     makeClickable(clickablePaths);
+    initMapTouchZoom(svg);
   } catch(err) {
     document.getElementById('map-container').innerHTML =
       '<div id="error"><i class="ti ti-alert-triangle" style="font-size:32px; display:block; margin-bottom:8px;" aria-hidden="true"></i>Karte konnte nicht geladen werden.<br><small>' + err.message + '</small></div>';
